@@ -1,33 +1,47 @@
 const express = require('express');
-const bodyParser = require('body-parser');
 const mysql = require('mysql2');
-const app = express();
 const cors = require('cors');
 
+const app = express();
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
 
 const db = mysql.createConnection({
-  host: 'healthcare.cyba06om6b84.us-east-1.rds.amazonaws.com',
+  host: 'your-rds-endpoint',     // Example: mydb.xxxxxx.us-east-1.rds.amazonaws.com
   user: 'admin',
-  password: 'tshewang',
+  password: 'yourpassword',
   database: 'healthcare'
 });
 
-app.get('/appointments', (req, res) => {
-  db.query('SELECT * FROM appointments', (err, result) => {
-    if (err) throw err;
-    res.send(result);
-  });
+db.connect(err => {
+  if (err) {
+    console.error('Database connection error:', err);
+    process.exit(1);
+  }
+  console.log('✅ Connected to MySQL database');
 });
 
 app.post('/appointments', (req, res) => {
-  const { name, time, contact } = req.body;
-  db.query('INSERT INTO appointments (name, time, contact) VALUES (?, ?, ?)', 
-    [name, time, contact], (err, result) => {
-    if (err) throw err;
-    res.send({ success: true });
+  const { name, email, phone, time, mode, notes } = req.body;
+
+  if (!name || !email || !phone || !time || !mode) {
+    return res.status(400).json({ message: 'Missing required fields' });
+  }
+
+  const sql = `INSERT INTO appointments (name, email, phone, time, mode, notes)
+               VALUES (?, ?, ?, ?, ?, ?)`;
+  const values = [name, email, phone, time, mode, notes];
+
+  db.query(sql, values, (err, result) => {
+    if (err) {
+      console.error('Insert failed:', err);
+      return res.status(500).json({ message: 'Database insert error' });
+    }
+    res.json({ message: '✅ Appointment booked successfully!' });
   });
 });
 
-app.listen(3000, () => console.log('Server running on port 3000'));
+const PORT = 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
