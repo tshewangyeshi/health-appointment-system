@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Health Appointment Scheduler</title>
+</head>
+<body>
+  <h2>Book an Appointment</h2>
+  <form id="form">
+    Name: <input type="text" id="name"><br>
+    Time: <input type="datetime-local" id="time"><br>
+    Contact: <input type="email" id="contact"><br>
+    <button type="submit">Book</button>
+  </form>
+  <script>
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const res = await fetch('http://<your-ec2-public-ip>:3000/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: document.getElementById('name').value,
+          time: document.getElementById('time').value,
+          contact: document.getElementById('contact').value
+        })
+      });
+      alert('Appointment booked!');
+    });
+  </script>
+</body>
+</html>
