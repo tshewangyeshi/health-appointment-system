@@ -7,7 +7,7 @@ app.use(cors());
 app.use(express.json());
 
 const db = mysql.createConnection({
-  host: 'your-rds-endpoint',     // Example: mydb.xxxxxx.us-east-1.rds.amazonaws.com
+  host: 'healthcare.cyba06om6b84.us-east-1.rds.amazonaws.com',     // Example: mydb.xxxxxx.us-east-1.rds.amazonaws.com
   user: 'admin',
   password: 'yourpassword',
   database: 'healthcare'
