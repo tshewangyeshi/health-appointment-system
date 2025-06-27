@@ -1,3 +1,9 @@
+const AWS = require('aws-sdk');
+AWS.config.update({ region: 'us-east-1' });
+
+const sns = new AWS.SNS();
+const SNS_TOPIC_ARN = 'arn:aws:sns:us-east-1:484954965732:appointment-reminders'; // Replace this
+
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
@@ -32,6 +38,15 @@ app.post('/appointments', (req, res) => {
     }
     res.json({ message: 'Appointment saved' });
   });
+});
+const message = `New appointment booked by ${name}. Time: ${time}, Mode: ${mode}`;
+
+sns.publish({
+  Message: message,
+  TopicArn: SNS_TOPIC_ARN
+}, (err, data) => {
+  if (err) console.error('SNS Error:', err);
+  else console.log('SNS Notification Sent:', data);
 });
 
 app.listen(3000, () => {
