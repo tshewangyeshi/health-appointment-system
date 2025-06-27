@@ -34,56 +34,58 @@ db.connect(err => {
 });
 
 // API Route
-app.post('/appointments', upload.single('document'), (req, res) => {
-  const { name, email, phone, time, mode, notes } = req.body;
-  const file = req.file;
+app.post('/appointments', upload.single('document'), async (req, res) => {
+  try {
+    const { name, email, phone, time, mode, notes } = req.body;
+    const file = req.file;
 
-  if (file) {
-    const params = {
-      Bucket: 'healthcare-patient-docs', 
-      Key: `documents/${Date.now()}-${file.originalname}`,
-      Body: file.buffer
-    };
+    let fileUrl = null;
 
-    s3.upload(params, (err, data) => {
+    // Upload to S3 if file exists
+    if (file) {
+      const params = {
+        Bucket: 'healthcare-patient-docs', // ✅ Replace with your actual bucket name
+        Key: `documents/${Date.now()}-${file.originalname}`,
+        Body: file.buffer,
+      };
+
+      const s3Result = await s3.upload(params).promise();
+      fileUrl = s3Result.Location;
+      console.log('File uploaded to S3:', fileUrl);
+    }
+
+    // ✅ Log received data
+    console.log({ name, email, phone, time, mode, notes, fileUrl });
+
+    // Insert into DB
+    const sql = `INSERT INTO appointments (name, email, phone, time, mode, notes, file_url)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    db.query(sql, [name, email, phone, time, mode, notes, fileUrl], async (err, result) => {
       if (err) {
-        console.error('S3 upload error:', err);
-        return res.status(500).json({ message: 'S3 upload failed' });
+        console.error('MySQL error:', err);
+        return res.status(500).json({ message: 'Database insert failed' });
       }
-      console.log('Uploaded to S3:', data.Location);
-      insertToDB(name, email, phone, time, mode, notes, data.Location, res);
+
+      // Send SNS Notification
+      const message = `New appointment booked by ${name}.\nTime: ${time}\nMode: ${mode}\nContact: ${email}, ${phone}`;
+      try {
+        await sns.publish({
+          Message: message,
+          Subject: 'New Appointment Booking',
+          TopicArn: SNS_TOPIC_ARN
+        }).promise();
+        console.log('SNS Notification sent');
+      } catch (snsErr) {
+        console.error('SNS publish failed:', snsErr);
+      }
+
+      res.status(200).json({ message: 'Appointment booked successfully!', fileUrl });
     });
-  } else {
-    insertToDB(name, email, phone, time, mode, notes, null, res);
+  } catch (e) {
+    console.error('Unexpected error:', e);
+    res.status(500).json({ message: 'Unexpected server error' });
   }
 });
-
-// Insert DB + SNS Function
-function insertToDB(name, email, phone, time, mode, notes, fileUrl, res) {
-  const sql = 'INSERT INTO appointments (name, email, phone, time, mode, notes, file_url) VALUES (?, ?, ?, ?, ?, ?, ?)';
-  
-  db.query(sql, [name, email, phone, time, mode, notes, fileUrl], async (err, result) => {
-    if (err) {
-      console.error('MySQL error:', err);
-      return res.status(500).json({ message: 'Database insert failed' });
-    }
-
-    // ✅ Move SNS here: where data is correctly scoped and defined
-    const message = `New appointment booked by ${name}.\nTime: ${time}\nMode: ${mode}\nContact: ${email}, ${phone}`;
-
-    try {
-      await sns.publish({
-        Message: message,
-        Subject: 'New Appointment Booking',
-        TopicArn: SNS_TOPIC_ARN
-      }).promise();
-      console.log('✅ SNS Notification sent');
-    } catch (snsErr) {
-      console.error('❌ SNS publish failed:', snsErr);
-    }
-
-    res.status(200).json({ message: 'Appointment booked successfully!', fileUrl });
-  });
 }
 
 
