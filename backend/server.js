@@ -1,21 +1,25 @@
-const multer = require('multer');
-const upload = multer({ storage: multer.memoryStorage() });
-
-const AWS = require('aws-sdk');
-AWS.config.update({ region: 'us-east-1' });
-
-const sns = new AWS.SNS();
-const SNS_TOPIC_ARN = 'arn:aws:sns:us-east-1:484954965732:appointment-reminders'; // Replace this
-
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const multer = require('multer');
+const AWS = require('aws-sdk');
 
+// Configure AWS SDK
+AWS.config.update({ region: 'us-east-1' });
+const s3 = new AWS.S3();
+const sns = new AWS.SNS();
+const SNS_TOPIC_ARN = 'arn:aws:sns:us-east-1:484954965732:appointment-reminders'; // Replace with your actual ARN
+
+// Express app setup
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+// Setup multer for file uploads
+const upload = multer({ storage: multer.memoryStorage() });
+
+// Connect to RDS MySQL
 const db = mysql.createConnection({
   host: 'healthcare.cyba06om6b84.us-east-1.rds.amazonaws.com',
   user: 'admin',
@@ -31,48 +35,56 @@ db.connect(err => {
   console.log('Connected to RDS MySQL');
 });
 
-app.post('/appointments', (req, res) => {
+// Handle appointment submissions
+app.post('/appointments', upload.single('document'), async (req, res) => {
   const { name, email, phone, time, mode, notes } = req.body;
   const file = req.file;
+  let fileUrl = null;
 
-  // Upload to S3 if file is present
+  // Upload file to S3 if attached
   if (file) {
-    const s3 = new AWS.S3();
     const params = {
-      Bucket: 'your-s3-bucket-name',
+      Bucket: 'your-s3-bucket-name', // replace with actual bucket
       Key: `documents/${Date.now()}-${file.originalname}`,
       Body: file.buffer
     };
 
-    s3.upload(params, (err, data) => {
-      if (err) return res.status(500).json({ message: 'S3 upload failed' });
-      console.log('File uploaded to S3:', data.Location);
-
-      // Save to DB with optional S3 URL
-      insertToDB(name, email, phone, time, mode, notes, data.Location, res);
-    });
-  } else {
-    insertToDB(name, email, phone, time, mode, notes, null, res);
+    try {
+      const s3Response = await s3.upload(params).promise();
+      fileUrl = s3Response.Location;
+      console.log('File uploaded to S3:', fileUrl);
+    } catch (uploadErr) {
+      console.error('S3 upload error:', uploadErr);
+      return res.status(500).json({ message: 'Failed to upload document to S3' });
+    }
   }
-});
 
-function insertToDB(name, email, phone, time, mode, notes, fileUrl, res) {
-  const sql = 'INSERT INTO appointments (name, email, phone, time, mode, notes) VALUES (?, ?, ?, ?, ?, ?)';
-  db.query(sql, [name, email, phone, time, mode, notes], (err, result) => {
-    if (err) return res.status(500).json({ message: 'DB insert failed' });
-    res.json({ message: 'Appointment saved', fileUrl });
+  // Insert into MySQL
+  const sql = 'INSERT INTO appointments (name, email, phone, time, mode, notes, file_url) VALUES (?, ?, ?, ?, ?, ?, ?)';
+  db.query(sql, [name, email, phone, time, mode, notes, fileUrl], async (err, result) => {
+    if (err) {
+      console.error('MySQL error:', err);
+      return res.status(500).json({ message: 'Database insert failed' });
+    }
+
+    // Send notification using SNS
+    const message = `New appointment booked by ${name}.\nTime: ${time}\nMode: ${mode}\nContact: ${email}, ${phone}`;
+    try {
+      await sns.publish({
+        Message: message,
+        Subject: 'New Appointment Booking',
+        TopicArn: SNS_TOPIC_ARN
+      }).promise();
+      console.log('SNS Notification sent');
+    } catch (snsErr) {
+      console.error('SNS publish failed:', snsErr);
+    }
+
+    res.status(200).json({ message: 'Appointment booked successfully!', fileUrl });
   });
-}
-const message = `New appointment booked by ${name}. Time: ${time}, Mode: ${mode}`;
-
-sns.publish({
-  Message: message,
-  TopicArn: SNS_TOPIC_ARN
-}, (err, data) => {
-  if (err) console.error('SNS Error:', err);
-  else console.log('SNS Notification Sent:', data);
 });
 
+// Start server
 app.listen(3000, () => {
   console.log('Server running on port 3000');
 });
