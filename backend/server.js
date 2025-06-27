@@ -40,7 +40,7 @@ app.post('/appointments', upload.single('document'), (req, res) => {
 
   if (file) {
     const params = {
-      Bucket: 'your-correct-bucket-name', // 🔁 Replace with your real bucket
+      Bucket: 'healthcare-patient-docs', 
       Key: `documents/${Date.now()}-${file.originalname}`,
       Body: file.buffer
     };
