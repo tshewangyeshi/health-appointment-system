@@ -61,28 +61,31 @@ app.post('/appointments', upload.single('document'), (req, res) => {
 // Insert DB + SNS Function
 function insertToDB(name, email, phone, time, mode, notes, fileUrl, res) {
   const sql = 'INSERT INTO appointments (name, email, phone, time, mode, notes, file_url) VALUES (?, ?, ?, ?, ?, ?, ?)';
+  
   db.query(sql, [name, email, phone, time, mode, notes, fileUrl], async (err, result) => {
     if (err) {
       console.error('MySQL error:', err);
       return res.status(500).json({ message: 'Database insert failed' });
     }
 
-    // SNS Notification
+    // ✅ Move SNS here: where data is correctly scoped and defined
     const message = `New appointment booked by ${name}.\nTime: ${time}\nMode: ${mode}\nContact: ${email}, ${phone}`;
+
     try {
       await sns.publish({
         Message: message,
         Subject: 'New Appointment Booking',
         TopicArn: SNS_TOPIC_ARN
       }).promise();
-      console.log('SNS Notification sent');
+      console.log('✅ SNS Notification sent');
     } catch (snsErr) {
-      console.error('SNS publish failed:', snsErr);
+      console.error('❌ SNS publish failed:', snsErr);
     }
 
     res.status(200).json({ message: 'Appointment booked successfully!', fileUrl });
   });
 }
+
 
 // Start Server
 app.listen(3000, () => {
