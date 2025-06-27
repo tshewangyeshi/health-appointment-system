@@ -1,3 +1,6 @@
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
+
 const AWS = require('aws-sdk');
 AWS.config.update({ region: 'us-east-1' });
 
@@ -30,15 +33,36 @@ db.connect(err => {
 
 app.post('/appointments', (req, res) => {
   const { name, email, phone, time, mode, notes } = req.body;
+  const file = req.file;
+
+  // Upload to S3 if file is present
+  if (file) {
+    const s3 = new AWS.S3();
+    const params = {
+      Bucket: 'your-s3-bucket-name',
+      Key: `documents/${Date.now()}-${file.originalname}`,
+      Body: file.buffer
+    };
+
+    s3.upload(params, (err, data) => {
+      if (err) return res.status(500).json({ message: 'S3 upload failed' });
+      console.log('File uploaded to S3:', data.Location);
+
+      // Save to DB with optional S3 URL
+      insertToDB(name, email, phone, time, mode, notes, data.Location, res);
+    });
+  } else {
+    insertToDB(name, email, phone, time, mode, notes, null, res);
+  }
+});
+
+function insertToDB(name, email, phone, time, mode, notes, fileUrl, res) {
   const sql = 'INSERT INTO appointments (name, email, phone, time, mode, notes) VALUES (?, ?, ?, ?, ?, ?)';
   db.query(sql, [name, email, phone, time, mode, notes], (err, result) => {
-    if (err) {
-      console.error('Insert failed:', err);
-      return res.status(500).json({ message: 'Database insert error' });
-    }
-    res.json({ message: 'Appointment saved' });
+    if (err) return res.status(500).json({ message: 'DB insert failed' });
+    res.json({ message: 'Appointment saved', fileUrl });
   });
-});
+}
 const message = `New appointment booked by ${name}. Time: ${time}, Mode: ${mode}`;
 
 sns.publish({
