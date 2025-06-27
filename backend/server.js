@@ -10,14 +10,13 @@ const s3 = new AWS.S3();
 const sns = new AWS.SNS();
 const SNS_TOPIC_ARN = 'arn:aws:sns:us-east-1:484954965732:appointment-reminders'; // replace if needed
 
-// Express app setup
 const app = express();
 app.use(cors({ origin: '*' }));
 
-// Multer setup
+// Multer setup for file uploads
 const upload = multer({ storage: multer.memoryStorage() });
 
-// MySQL DB connection
+// MySQL connection
 const db = mysql.createConnection({
   host: 'healthcare.cyba06om6b84.us-east-1.rds.amazonaws.com',
   user: 'admin',
@@ -26,34 +25,30 @@ const db = mysql.createConnection({
 });
 
 db.connect(err => {
-  if (err) {
-    console.error('DB connection error:', err);
-  } else {
-    console.log('Connected to MySQL');
-  }
+  if (err) console.error('DB connection error:', err);
+  else console.log('Connected to RDS MySQL');
 });
 
-// Function to insert into DB and send SNS
-function insertToDB(name, email, phone, time, mode, notes, fileUrl, res) {
+// Function to insert to DB and then send SNS notification
+function insertToDB({ name, email, phone, time, mode, notes, fileUrl }, res) {
   const sql = 'INSERT INTO appointments (name, email, phone, time, mode, notes, file_url) VALUES (?, ?, ?, ?, ?, ?, ?)';
-
   db.query(sql, [name, email, phone, time, mode, notes, fileUrl], async (err, result) => {
     if (err) {
       console.error('MySQL error:', err);
       return res.status(500).json({ message: 'Database insert failed' });
     }
 
-    const message = `New appointment booked by ${name}.\nTime: ${time}\nMode: ${mode}\nContact: ${email}, ${phone}`;
-    
+    const message = `🩺 New appointment booked\n👤 Name: ${name}\n📅 Time: ${time}\n🧭 Mode: ${mode}\n📞 Contact: ${email}, ${phone}`;
+
     try {
       await sns.publish({
         Message: message,
         Subject: 'New Appointment Booking',
         TopicArn: SNS_TOPIC_ARN
       }).promise();
-      console.log('SNS Notification sent');
+      console.log('SNS notification sent.');
     } catch (snsErr) {
-      console.error('SNS publish failed:', snsErr);
+      console.error('SNS publish error:', snsErr);
     }
 
     res.status(200).json({ message: 'Appointment booked successfully!', fileUrl });
@@ -65,9 +60,11 @@ app.post('/appointments', upload.single('document'), (req, res) => {
   const { name, email, phone, time, mode, notes } = req.body;
   const file = req.file;
 
+  const appointmentData = { name, email, phone, time, mode, notes };
+
   if (file) {
     const params = {
-      Bucket: 'healthcare-patient-docs', // ✅ Update if needed
+      Bucket: 'healthcare-patient-docs', // replace if needed
       Key: `documents/${Date.now()}-${file.originalname}`,
       Body: file.buffer
     };
@@ -77,14 +74,16 @@ app.post('/appointments', upload.single('document'), (req, res) => {
         console.error('S3 upload error:', err);
         return res.status(500).json({ message: 'S3 upload failed' });
       }
-      insertToDB(name, email, phone, time, mode, notes, data.Location, res);
+
+      appointmentData.fileUrl = data.Location;
+      insertToDB(appointmentData, res);
     });
   } else {
-    insertToDB(name, email, phone, time, mode, notes, null, res);
+    appointmentData.fileUrl = null;
+    insertToDB(appointmentData, res);
   }
 });
 
-// Start server
 app.listen(3000, () => {
   console.log('Server running on port 3000');
 });
