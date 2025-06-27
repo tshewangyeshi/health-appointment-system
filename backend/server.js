@@ -44,7 +44,7 @@ app.post('/appointments', upload.single('document'), async (req, res) => {
   // Upload file to S3 if attached
   if (file) {
     const params = {
-      Bucket: 'your-s3-bucket-name', // replace with actual bucket
+      Bucket: 'healthcare-patient-docs ', // replace with actual bucket
       Key: `documents/${Date.now()}-${file.originalname}`,
       Body: file.buffer
     };
